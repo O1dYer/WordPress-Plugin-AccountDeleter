@@ -26,11 +26,18 @@ add_shortcode('delete_account', function() {
         return '[delete_account]';
     }
 
-    if (!is_user_logged_in()) return '请先登录再执行注销账号操作。';
+    // 统一的警告提示框样式
+    $error_box_style = 'style="color:#d63638; font-weight:bold; padding:15px; background:#fff5f5; border-left:4px solid #d63638; border-radius:4px; margin-bottom:20px; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"';
+
+    // 检查登录状态
+    if (!is_user_logged_in()) {
+        return '<p ' . $error_box_style . '>请先登录再执行注销账号操作。</p>';
+    }
     
     $user = wp_get_current_user();
+    // 检查是否为管理员
     if (in_array('administrator', $user->roles)) {
-        return '<p style="color:#d63638;font-weight:bold;padding:15px;background:#fff5f5;border-left:4px solid #d63638;">为了保障安全，管理员账号不能从前端注销。</p>';
+        return '<p ' . $error_box_style . '>为了保障安全，管理员账号不能从前端注销。</p>';
     }
 
     $days = get_option('wad_deletion_days', 7);
@@ -86,7 +93,6 @@ add_shortcode('delete_account', function() {
         btn.addEventListener('click', function() {
             const days = <?php echo intval($days); ?>;
             if (confirm('确定要申请注销吗？\n您的账号将在 ' + days + ' 天后被永久删除。在此期间重新登录可撤销申请。\n点击确定后将自动退出登录。')) {
-                // 向后端发送请求
                 fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=wad_request_deletion')
                 .then(response => {
                     alert('申请成功，您的账号已退出登录并进入冷静期。');
@@ -103,7 +109,7 @@ add_shortcode('delete_account', function() {
     return ob_get_clean();
 });
 
-// --- 3. 核心：处理注销申请的 AJAX 逻辑 (新增部分) ---
+// --- 3. 处理注销申请的 AJAX 逻辑 ---
 add_action('wp_ajax_wad_request_deletion', function() {
     if (!is_user_logged_in()) {
         wp_send_json_error('Unauthorized');
@@ -112,17 +118,12 @@ add_action('wp_ajax_wad_request_deletion', function() {
     $user_id = get_current_user_id();
     $user = get_userdata($user_id);
 
-    // 二次检查权限
     if (in_array('administrator', $user->roles)) {
         wp_send_json_error('Admin cannot be deleted');
     }
 
-    // 1. 写入申请时间，这会使其出现在后台注销列表中
     update_user_meta($user_id, 'wad_deletion_request_time', time());
-
-    // 2. 强制退出登录，确保前端状态更新
     wp_logout();
-
     wp_send_json_success('Request logged and logged out');
 });
 
@@ -183,24 +184,8 @@ add_action('admin_menu', function() {
 function wad_render_admin_page() {
     echo '
     <style>
-        .wad-admin-btn { 
-            display: inline-block !important;
-            min-width: 90px !important; 
-            height: 30px !important; 
-            line-height: 28px !important; 
-            text-align: center !important; 
-            padding: 0 10px !important;
-            vertical-align: middle !important;
-            box-sizing: border-box !important;
-            margin-right: 5px !important;
-            text-decoration: none !important;
-            border-radius: 4px !important;
-        }
-        .wad-btn-danger { 
-            border: 1px solid #d63638 !important; 
-            color: #d63638 !important; 
-            background: #fff !important;
-        }
+        .wad-admin-btn { display: inline-block !important; min-width: 90px !important; height: 30px !important; line-height: 28px !important; text-align: center !important; padding: 0 10px !important; vertical-align: middle !important; box-sizing: border-box !important; margin-right: 5px !important; text-decoration: none !important; border-radius: 4px !important; }
+        .wad-btn-danger { border: 1px solid #d63638 !important; color: #d63638 !important; background: #fff !important; }
         .wad-btn-danger:hover { background: #fbe9e9 !important; }
     </style>';
 
