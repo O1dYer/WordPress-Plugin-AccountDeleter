@@ -2,6 +2,7 @@
 /*
 Plugin Name: 简易账号注销插件
 Description: 在任何页面（文章页以外）插入代码[delete_account]即可使用。支持设置注销冷静期、后台管理。
+Version: 26.3.9
 Author: 欧叶
 Author URI: https://github.com/O1dYer
 */
@@ -21,7 +22,6 @@ register_deactivation_hook(__FILE__, function() {
 
 // --- 2. 前端短代码功能 ---
 add_shortcode('delete_account', function() {
-    // 检查是否为页面 (Page)，如果不是页面（例如是文章 Post），则直接返回原始短代码文本
     if (!is_page()) {
         return '[delete_account]';
     }
@@ -86,10 +86,14 @@ add_shortcode('delete_account', function() {
         btn.addEventListener('click', function() {
             const days = <?php echo intval($days); ?>;
             if (confirm('确定要申请注销吗？\n您的账号将在 ' + days + ' 天后被永久删除。在此期间重新登录可撤销申请。\n点击确定后将自动退出登录。')) {
+                // 向后端发送请求
                 fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=wad_request_deletion')
-                .then(() => {
-                    alert('申请成功，即将回到首页。');
+                .then(response => {
+                    alert('申请成功，您的账号已退出登录并进入冷静期。');
                     window.location.href = '<?php echo home_url(); ?>';
+                })
+                .catch(err => {
+                    alert('请求处理失败，请稍后重试。');
                 });
             }
         });
@@ -99,7 +103,30 @@ add_shortcode('delete_account', function() {
     return ob_get_clean();
 });
 
-// --- 3. 登录拦截与账号恢复逻辑 ---
+// --- 3. 核心：处理注销申请的 AJAX 逻辑 (新增部分) ---
+add_action('wp_ajax_wad_request_deletion', function() {
+    if (!is_user_logged_in()) {
+        wp_send_json_error('Unauthorized');
+    }
+
+    $user_id = get_current_user_id();
+    $user = get_userdata($user_id);
+
+    // 二次检查权限
+    if (in_array('administrator', $user->roles)) {
+        wp_send_json_error('Admin cannot be deleted');
+    }
+
+    // 1. 写入申请时间，这会使其出现在后台注销列表中
+    update_user_meta($user_id, 'wad_deletion_request_time', time());
+
+    // 2. 强制退出登录，确保前端状态更新
+    wp_logout();
+
+    wp_send_json_success('Request logged and logged out');
+});
+
+// --- 4. 登录拦截与账号恢复逻辑 ---
 add_action('wp_login', function($user_login, $user) {
     $request_time = get_user_meta($user->ID, 'wad_deletion_request_time', true);
     if ($request_time) {
@@ -148,7 +175,7 @@ add_action('wp_footer', function() {
     }
 });
 
-// --- 4. 管理员后台界面 ---
+// --- 5. 管理员后台界面 ---
 add_action('admin_menu', function() {
     add_users_page('账号注销管理', '账号注销', 'manage_options', 'wad-settings', 'wad_render_admin_page');
 });
@@ -282,7 +309,7 @@ function wad_render_admin_page() {
     <?php
 }
 
-// --- 5. 定时自动删除到期用户 ---
+// --- 6. 定时自动删除到期用户 ---
 add_action('wp_account_deletion_cron', function() {
     $days = get_option('wad_deletion_days', 7);
     $users = get_users(['meta_key' => 'wad_deletion_request_time']);
